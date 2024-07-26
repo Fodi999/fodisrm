@@ -15,6 +15,6 @@
     "formidable": "^3.5.1",
     "jsonwebtoken": "^9.0.2",
     "method-override": "^3.0.0",
-    "mongoose": "^5.10.9"
+    "mongoose": "^8.5.1"
   }
 }
