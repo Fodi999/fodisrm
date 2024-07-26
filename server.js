@@ -2,11 +2,11 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
-const multer = require('multer');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const methodOverride = require('method-override');
-require('dotenv').config(); // Подключаем dotenv
+const formidable = require('formidable');
+require('dotenv').config();
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -15,14 +15,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(cookieParser());
 app.use(methodOverride('_method'));
 
-mongoose.connect(process.env.MONGODB_URI);
-
-mongoose.connection.on('connected', () => {
-  console.log(`Connected to MongoDB at ${process.env.MONGODB_URI}`);
-});
-
-mongoose.connection.on('error', (err) => {
-  console.log('Error connecting to MongoDB:', err);
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  console.log('Connected to MongoDB');
+}).catch((err) => {
+  console.error('Error connecting to MongoDB', err);
 });
 
 const PostSchema = new mongoose.Schema({
@@ -59,18 +58,30 @@ const authMiddleware = (req, res, next) => {
 };
 
 app.get('/', async (req, res) => {
-  const posts = await Post.find().sort({ createdAt: -1 });
-  res.render('index', { posts });
+  try {
+    const posts = await Post.find().sort({ createdAt: -1 });
+    res.render('index', { posts });
+  } catch (err) {
+    res.status(500).send('Error retrieving posts');
+  }
 });
 
 app.get('/admin', authMiddleware, async (req, res) => {
-  const posts = await Post.find().sort({ createdAt: -1 });
-  res.render('admin', { user: req.user, posts });
+  try {
+    const posts = await Post.find().sort({ createdAt: -1 });
+    res.render('admin', { user: req.user, posts });
+  } catch (err) {
+    res.status(500).send('Error retrieving posts');
+  }
 });
 
 app.get('/admin/edit/:id', authMiddleware, async (req, res) => {
-  const post = await Post.findById(req.params.id);
-  res.render('edit', { post });
+  try {
+    const post = await Post.findById(req.params.id);
+    res.render('edit', { post });
+  } catch (err) {
+    res.status(500).send('Error retrieving post');
+  }
 });
 
 app.post('/admin/login', (req, res) => {
@@ -84,64 +95,83 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({ storage });
-
-app.post('/api/posts', authMiddleware, upload.single('media'), async (req, res) => {
+app.post('/api/posts', authMiddleware, (req, res) => {
   if (!req.user) {
     return res.status(401).send('Unauthorized');
   }
-  const { title, content } = req.body;
-  const mediaUrl = req.file ? `/uploads/${req.file.filename}` : '';
-  const post = new Post({
-    title,
-    content,
-    imageUrl: req.file && req.file.mimetype.startsWith('image') ? mediaUrl : '',
-    videoUrl: req.file && req.file.mimetype.startsWith('video') ? mediaUrl : '',
-  });
-  await post.save();
-  res.redirect('/admin');
-});
+  const form = new formidable.IncomingForm();
+  form.uploadDir = path.join(__dirname, 'uploads');
+  form.keepExtensions = true;
 
-app.put('/api/posts/:id', authMiddleware, upload.single('media'), async (req, res) => {
-  if (!req.user) {
-    return res.status(401).send('Unauthorized');
-  }
-  const { title, content } = req.body;
-  const post = await Post.findById(req.params.id);
-  post.title = title;
-  post.content = content;
-  if (req.file) {
-    const mediaUrl = `/uploads/${req.file.filename}`;
-    if (req.file.mimetype.startsWith('image')) {
-      post.imageUrl = mediaUrl;
-      post.videoUrl = '';
-    } else if (req.file.mimetype.startsWith('video')) {
-      post.videoUrl = mediaUrl;
-      post.imageUrl = '';
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      return res.status(500).send('Error parsing form');
     }
+    const { title, content } = fields;
+    const mediaUrl = files.media ? `/uploads/${path.basename(files.media.path)}` : '';
+    const post = new Post({
+      title,
+      content,
+      imageUrl: files.media && files.media.type.startsWith('image') ? mediaUrl : '',
+      videoUrl: files.media && files.media.type.startsWith('video') ? mediaUrl : '',
+    });
+    try {
+      await post.save();
+      res.redirect('/admin');
+    } catch (err) {
+      res.status(500).send('Error saving post');
+    }
+  });
+});
+
+app.put('/api/posts/:id', authMiddleware, (req, res) => {
+  if (!req.user) {
+    return res.status(401).send('Unauthorized');
   }
-  await post.save();
-  res.redirect('/admin');
+  const form = new formidable.IncomingForm();
+  form.uploadDir = path.join(__dirname, 'uploads');
+  form.keepExtensions = true;
+
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      return res.status(500).send('Error parsing form');
+    }
+    const { title, content } = fields;
+    const post = await Post.findById(req.params.id);
+    post.title = title;
+    post.content = content;
+    if (files.media) {
+      const mediaUrl = `/uploads/${path.basename(files.media.path)}`;
+      if (files.media.type.startsWith('image')) {
+        post.imageUrl = mediaUrl;
+        post.videoUrl = '';
+      } else if (files.media.type.startsWith('video')) {
+        post.videoUrl = mediaUrl;
+        post.imageUrl = '';
+      }
+    }
+    try {
+      await post.save();
+      res.redirect('/admin');
+    } catch (err) {
+      res.status(500).send('Error updating post');
+    }
+  });
 });
 
 app.delete('/api/posts/:id', authMiddleware, async (req, res) => {
   if (!req.user) {
     return res.status(401).send('Unauthorized');
   }
-  await Post.findByIdAndDelete(req.params.id);
-  res.redirect('/admin');
+  try {
+    await Post.findByIdAndDelete(req.params.id);
+    res.redirect('/admin');
+  } catch (err) {
+    res.status(500).send('Error deleting post');
+  }
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Homepage: http://localhost:${PORT}`);
