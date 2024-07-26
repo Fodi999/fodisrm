@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+  <header>
+    <nav class="left-nav">
+      <a href="/" class="nav-link"><i class="fas fa-house-user"></i></a>
+    </nav>
+    <h1>Admin Panel</h1>
+    <nav class="right-nav">
+      <a href="/admin" class="nav-link"><i class="fas fa-user-shield"></i></a>
+    </nav>
+  </header>
+  <main>
+    <% if (!user) { %>
+      <section class="form-section">
+        <h2>Login</h2>
+        <form action="/admin/login" method="post">
+          <input type="text" name="username" placeholder="Username" required>
+          <input type="password" name="password" placeholder="Password" required>
+          <button type="submit">Login</button>
+        </form>
+      </section>
+    <% } else { %>
+      <section class="form-section">
+        <h2>Create Post</h2>
+        <form action="/api/posts" method="post" enctype="multipart/form-data">
+          <input type="text" name="title" placeholder="Title" required>
+          <textarea name="content" placeholder="Content" required maxlength="120" oninput="updateCharCount(this)"></textarea>
+          <div id="charCount">120 characters remaining</div>
+          <input type="file" name="media">
+          <button type="submit">Create Post</button>
+        </form>
+      </section>
+      <section>
+        <h2>Manage Posts</h2>
+        <div class="grid">
+          <% posts.forEach(post => { %>
+            <div class="card">
+              <% if (post.imageUrl) { %>
+                <img src="<%= post.imageUrl %>" alt="Image">
+              <% } %>
+              <% if (post.videoUrl) { %>
+                <video controls>
+                  <source src="<%= post.videoUrl %>" type="video/mp4">
+                </video>
+              <% } %>
+              <div class="card-content">
+                <h2><%= post.title %></h2>
+                <p><%= post.content %></p>
+                <a href="/admin/edit/<%= post._id %>" class="btn">Edit</a>
+                <form action="/api/posts/<%= post._id %>?_method=DELETE" method="post" style="display:inline;">
+                  <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      </section>
+    <% } %>
+  </main>
+  <script>
+    function updateCharCount(textarea) {
+      const maxLength = textarea.getAttribute('maxlength');
+      const currentLength = textarea.value.length;
+      const charCountElement = document.getElementById('charCount');
+      charCountElement.textContent = `${maxLength - currentLength} characters remaining`;
+    }
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+ 

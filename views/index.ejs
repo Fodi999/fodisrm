@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple CMS</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+  <header>
+    <nav class="left-nav">
+      <a href="/" class="nav-link"><i class="fas fa-house-user"></i></a>
+    </nav>
+    <h1>Simple CMS</h1>
+    <nav class="right-nav">
+      <a href="/admin" class="nav-link"><i class="fas fa-user-shield"></i></a>
+    </nav>
+  </header>
+  <main>
+    <div class="grid">
+      <% posts.forEach(post => { %>
+        <div class="card">
+          <% if (post.imageUrl) { %>
+            <img src="<%= post.imageUrl %>" alt="Image">
+          <% } %>
+          <% if (post.videoUrl) { %>
+            <video controls>
+              <source src="<%= post.videoUrl %>" type="video/mp4">
+            </video>
+          <% } %>
+          <div class="card-content">
+            <h2><%= post.title %></h2>
+            <p><%= post.content %></p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </main>
+</body>
+</html>
+
+
+
+
+
+
+ 
