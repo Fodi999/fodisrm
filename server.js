@@ -1,5 +1,5 @@
 const express = require('express');
-const mongoose = require('mongoose');
+const fs = require('fs');
 const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -15,22 +15,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(cookieParser());
 app.use(methodOverride('_method'));
 
-const mongoURI = process.env.MONGODB_URI;
-mongoose.connect(mongoURI).then(() => {
-  console.log('Connected to MongoDB');
-}).catch((err) => {
-  console.error('Error connecting to MongoDB:', err.message);
-});
+// Utility functions for file operations
+const readPostsFromFile = () => {
+  const data = fs.readFileSync('posts.json');
+  return JSON.parse(data);
+};
 
-const PostSchema = new mongoose.Schema({
-  title: String,
-  content: String,
-  imageUrl: String,
-  videoUrl: String,
-  createdAt: { type: Date, default: Date.now },
-});
+const writePostsToFile = (posts) => {
+  fs.writeFileSync('posts.json', JSON.stringify(posts, null, 2));
+};
 
-const Post = mongoose.model('Post', PostSchema);
+// Initialize posts file if it doesn't exist
+if (!fs.existsSync('posts.json')) {
+  writePostsToFile([]);
+}
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -55,31 +53,20 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-app.get('/', async (req, res) => {
-  try {
-    const posts = await Post.find().sort({ createdAt: -1 });
-    res.render('index', { posts });
-  } catch (err) {
-    res.status(500).send('Error retrieving posts');
-  }
+app.get('/', (req, res) => {
+  const posts = readPostsFromFile();
+  res.render('index', { posts });
 });
 
-app.get('/admin', authMiddleware, async (req, res) => {
-  try {
-    const posts = await Post.find().sort({ createdAt: -1 });
-    res.render('admin', { user: req.user, posts });
-  } catch (err) {
-    res.status(500).send('Error retrieving posts');
-  }
+app.get('/admin', authMiddleware, (req, res) => {
+  const posts = readPostsFromFile();
+  res.render('admin', { user: req.user, posts });
 });
 
-app.get('/admin/edit/:id', authMiddleware, async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
-    res.render('edit', { post });
-  } catch (err) {
-    res.status(500).send('Error retrieving post');
-  }
+app.get('/admin/edit/:id', authMiddleware, (req, res) => {
+  const posts = readPostsFromFile();
+  const post = posts.find(post => post.id === req.params.id);
+  res.render('edit', { post });
 });
 
 app.post('/admin/login', (req, res) => {
@@ -101,24 +88,24 @@ app.post('/api/posts', authMiddleware, (req, res) => {
   form.uploadDir = path.join(__dirname, 'uploads');
   form.keepExtensions = true;
 
-  form.parse(req, async (err, fields, files) => {
+  form.parse(req, (err, fields, files) => {
     if (err) {
       return res.status(500).send('Error parsing form');
     }
     const { title, content } = fields;
     const mediaUrl = files.media ? `/uploads/${path.basename(files.media.path)}` : '';
-    const post = new Post({
+    const posts = readPostsFromFile();
+    const newPost = {
+      id: Date.now().toString(),
       title,
       content,
       imageUrl: files.media && files.media.type.startsWith('image') ? mediaUrl : '',
       videoUrl: files.media && files.media.type.startsWith('video') ? mediaUrl : '',
-    });
-    try {
-      await post.save();
-      res.redirect('/admin');
-    } catch (err) {
-      res.status(500).send('Error saving post');
-    }
+      createdAt: new Date()
+    };
+    posts.push(newPost);
+    writePostsToFile(posts);
+    res.redirect('/admin');
   });
 });
 
@@ -130,43 +117,42 @@ app.put('/api/posts/:id', authMiddleware, (req, res) => {
   form.uploadDir = path.join(__dirname, 'uploads');
   form.keepExtensions = true;
 
-  form.parse(req, async (err, fields, files) => {
+  form.parse(req, (err, fields, files) => {
     if (err) {
       return res.status(500).send('Error parsing form');
     }
     const { title, content } = fields;
-    const post = await Post.findById(req.params.id);
-    post.title = title;
-    post.content = content;
-    if (files.media) {
-      const mediaUrl = `/uploads/${path.basename(files.media.path)}`;
-      if (files.media.type.startsWith('image')) {
-        post.imageUrl = mediaUrl;
-        post.videoUrl = '';
-      } else if (files.media.type.startsWith('video')) {
-        post.videoUrl = mediaUrl;
-        post.imageUrl = '';
+    const posts = readPostsFromFile();
+    const postIndex = posts.findIndex(post => post.id === req.params.id);
+    if (postIndex !== -1) {
+      posts[postIndex].title = title;
+      posts[postIndex].content = content;
+      if (files.media) {
+        const mediaUrl = `/uploads/${path.basename(files.media.path)}`;
+        if (files.media.type.startsWith('image')) {
+          posts[postIndex].imageUrl = mediaUrl;
+          posts[postIndex].videoUrl = '';
+        } else if (files.media.type.startsWith('video')) {
+          posts[postIndex].videoUrl = mediaUrl;
+          posts[postIndex].imageUrl = '';
+        }
       }
-    }
-    try {
-      await post.save();
+      writePostsToFile(posts);
       res.redirect('/admin');
-    } catch (err) {
-      res.status(500).send('Error updating post');
+    } else {
+      res.status(404).send('Post not found');
     }
   });
 });
 
-app.delete('/api/posts/:id', authMiddleware, async (req, res) => {
+app.delete('/api/posts/:id', authMiddleware, (req, res) => {
   if (!req.user) {
     return res.status(401).send('Unauthorized');
   }
-  try {
-    await Post.findByIdAndDelete(req.params.id);
-    res.redirect('/admin');
-  } catch (err) {
-    res.status(500).send('Error deleting post');
-  }
+  const posts = readPostsFromFile();
+  const filteredPosts = posts.filter(post => post.id !== req.params.id);
+  writePostsToFile(filteredPosts);
+  res.redirect('/admin');
 });
 
 const PORT = process.env.PORT || 3000;
